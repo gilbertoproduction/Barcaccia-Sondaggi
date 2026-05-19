@@ -32,7 +32,7 @@ export default function App() {
 
   // Caricamento dati iniziali
   useEffect(() => {
-    const savedVotes = localStorage.getItem('sondaggi_barcaccia_voti');
+    const savedVotes = localStorage.getItem('sondaggioJuventus_voti');
     if (savedVotes) {
       setAllVotes(JSON.parse(savedVotes));
     }
@@ -48,13 +48,18 @@ export default function App() {
       setError('Password errata (deve essere uguale al nome)');
       return;
     }
+
+    // Carichiamo l'ultima versione dei voti dal localStorage per essere sicuri
+    const savedVotes = localStorage.getItem('sondaggioJuventus_voti');
+    const currentVotes: VoteData = savedVotes ? JSON.parse(savedVotes) : {};
+    setAllVotes(currentVotes);
+
     setCurrentUser(loginName);
     setView('polls');
     setError('');
     
-    // Se l'utente ha già votato, pre-carichiamo le sue scelte nel sondaggio
-    const userVotes = allVotes[loginName] || [];
-    setSelectedIds(userVotes);
+    // Pre-carichiamo le scelte fatte in precedenza da questo utente
+    setSelectedIds(currentVotes[loginName] || []);
   };
 
   const handleLogout = () => {
@@ -75,13 +80,21 @@ export default function App() {
   const confirmVotes = () => {
     if (!currentUser) return;
     
+    // 1. Legge l'oggetto dal localStorage (se non esiste, crearlo vuoto)
+    const stored = localStorage.getItem('sondaggioJuventus_voti');
+    const existingVotes: VoteData = stored ? JSON.parse(stored) : {};
+    
+    // 2. Aggiungere/Aggiornare i voti dell'utente loggato all'interno di quell'oggetto
     const updatedVotes: VoteData = {
-      ...allVotes,
+      ...existingVotes,
       [currentUser]: selectedIds
     };
     
+    // 3. Salvare l'oggetto aggiornato nel localStorage
+    localStorage.setItem('sondaggioJuventus_voti', JSON.stringify(updatedVotes));
+    
+    // Aggiorna lo stato locale per la visualizzazione immediata
     setAllVotes(updatedVotes);
-    localStorage.setItem('sondaggi_barcaccia_voti', JSON.stringify(updatedVotes));
     setView('results');
   };
 
