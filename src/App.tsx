@@ -7,13 +7,22 @@ import {
   Users as UsersIcon, 
   BarChart3, 
   Vote, 
-  UserCircle2,
-  Lock,
-  ArrowLeft,
-  XCircle,
-  Trophy
+  UserCircle2, 
+  Lock, 
+  ArrowLeft, 
+  XCircle, 
+  Trophy 
 } from 'lucide-react';
-import { USERS, CANDIDATES, type Candidate } from './data';
+import { USERS, CANDIDATES } from './data';
+import { db } from './firebase';
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  onSnapshot, 
+  deleteDoc, 
+  getDocs 
+} from 'firebase/firestore';
 
 type View = 'login' | 'polls' | 'voting' | 'results';
 
@@ -29,13 +38,20 @@ export default function App() {
   const [error, setError] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [allVotes, setAllVotes] = useState<VoteData>({});
+  const [loading, setLoading] = useState(true);
 
-  // Caricamento dati iniziali
+  // Sincronizzazione in tempo reale con Firestore
   useEffect(() => {
-    const savedVotes = localStorage.getItem('sondaggioJuventus_voti');
-    if (savedVotes) {
-      setAllVotes(JSON.parse(savedVotes));
-    }
+    const unsubscribe = onSnapshot(collection(db, "voti_barcaccia"), (querySnapshot) => {
+      const votes: VoteData = {};
+      querySnapshot.forEach((doc) => {
+        votes[doc.id] = (doc.data() as { selectedIds: string[] }).selectedIds;
+      });
+      setAllVotes(votes);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
   }, []);
 
   const handleLogin = (e: FormEvent) => {
@@ -49,17 +65,12 @@ export default function App() {
       return;
     }
 
-    // Carichiamo l'ultima versione dei voti dal localStorage per essere sicuri
-    const savedVotes = localStorage.getItem('sondaggioJuventus_voti');
-    const currentVotes: VoteData = savedVotes ? JSON.parse(savedVotes) : {};
-    setAllVotes(currentVotes);
-
     setCurrentUser(loginName);
     setView('polls');
     setError('');
     
     // Pre-carichiamo le scelte fatte in precedenza da questo utente
-    setSelectedIds(currentVotes[loginName] || []);
+    setSelectedIds(allVotes[loginName] || []);
   };
 
   const handleLogout = () => {
@@ -77,36 +88,37 @@ export default function App() {
     );
   };
 
-  const confirmVotes = () => {
+  const confirmVotes = async () => {
     if (!currentUser) return;
     
-    // 1. Legge l'oggetto dal localStorage (se non esiste, crearlo vuoto)
-    const stored = localStorage.getItem('sondaggioJuventus_voti');
-    const existingVotes: VoteData = stored ? JSON.parse(stored) : {};
-    
-    // 2. Aggiungere/Aggiornare i voti dell'utente loggato all'interno di quell'oggetto
-    const updatedVotes: VoteData = {
-      ...existingVotes,
-      [currentUser]: selectedIds
-    };
-    
-    // 3. Salvare l'oggetto aggiornato nel localStorage
-    localStorage.setItem('sondaggioJuventus_voti', JSON.stringify(updatedVotes));
-    
-    // Aggiorna lo stato locale per la visualizzazione immediata
-    setAllVotes(updatedVotes);
-    setView('results');
+    try {
+      // Salvataggio su Firestore
+      await setDoc(doc(db, "voti_barcaccia", currentUser), {
+        selectedIds: selectedIds,
+        votedAt: new Date().toISOString()
+      });
+      
+      setView('results');
+    } catch (err) {
+      console.error("Errore salvataggio:", err);
+      alert("Errore durante il salvataggio dei voti.");
+    }
   };
 
-  const handleResetVotes = () => {
-    if (currentUser !== 'Filo') return;
+  const handleResetVotes = async () => {
+    if (currentUser !== 'Simo') return;
     
-    const confirmed = window.confirm('Sei sicuro di voler cancellare tutti i voti? Questa azione è irreversibile.');
+    const confirmed = window.confirm('Sei sicuro di voler CANCELLARE TUTTI I VOTI dal database Firebase?');
     if (confirmed) {
-      localStorage.removeItem('sondaggioJuventus_voti');
-      setAllVotes({});
-      setSelectedIds([]);
-      setError('Voti resettati con successo.');
+      try {
+        const querySnapshot = await getDocs(collection(db, "voti_barcaccia"));
+        const deletePromises = querySnapshot.docs.map(d => deleteDoc(doc(db, "voti_barcaccia", d.id)));
+        await Promise.all(deletePromises);
+        alert('Database resettato con successo.');
+      } catch (err) {
+        console.error("Errore reset:", err);
+        alert("Errore durante il reset.");
+      }
     }
   };
 
@@ -158,7 +170,7 @@ export default function App() {
                 <div className="bg-black p-10 text-center">
                   <div className="w-16 h-16 bg-white text-black rounded-2xl flex items-center justify-center font-black text-3xl mx-auto mb-6 shadow-xl">B</div>
                   <h1 className="text-3xl font-black text-white tracking-tighter uppercase italic">Barcaccia</h1>
-                  <p className="text-slate-500 text-[10px] mt-2 font-black tracking-[0.3em] uppercase">Private Access Only</p>
+                  <p className="text-slate-500 text-[10px] mt-2 font-black tracking-[0.3em] uppercase">Firebase Realtime Sync</p>
                 </div>
                 
                 <form onSubmit={handleLogin} className="p-10 space-y-6">
@@ -258,7 +270,7 @@ export default function App() {
                       </div>
                     </div>
                     <h3 className="text-3xl font-black text-slate-900 mb-4 leading-tight tracking-tighter">Risultati Live</h3>
-                    <p className="text-slate-500 font-medium text-sm">Analisi delle preferenze dei membri e conteggi finali.</p>
+                    <p className="text-slate-500 font-medium text-sm">Analisi delle preferenze dei membri in tempo reale.</p>
                   </div>
                   <div className="mt-8 flex items-center text-xs font-black text-slate-400 group-hover:text-black transition-colors group-hover:translate-x-2 transition-transform">
                     CONSULTA <ChevronRight className="w-4 h-4 ml-1" />
@@ -281,7 +293,7 @@ export default function App() {
                     <ArrowLeft className="w-4 h-4" /> Indietro
                   </button>
                   <h1 className="text-5xl font-black text-slate-900 tracking-tighter mb-4 leading-none uppercase">Votazione</h1>
-                  <p className="text-slate-500 font-medium">Seleziona tutti i profili che ritieni debbano lasciare il club.</p>
+                  <p className="text-slate-500 font-medium">I tuoi voti verranno sincronizzati su Firebase.</p>
                 </div>
               </div>
 
@@ -330,7 +342,7 @@ export default function App() {
                   onClick={confirmVotes}
                   className="w-full max-w-2xl h-16 bg-black text-white font-black text-lg rounded-full shadow-2xl shadow-slate-400 active:scale-95 transition-all flex items-center justify-center gap-4 uppercase tracking-widest"
                 >
-                  Conferma Voti ({selectedIds.length})
+                  PUBBLICA SU FIREBASE ({selectedIds.length})
                   <CheckCircle2 className="w-6 h-6" />
                 </button>
               </div>
@@ -349,15 +361,15 @@ export default function App() {
                   <ArrowLeft className="w-4 h-4" /> Dashboard
                 </button>
                 <div className="text-right">
-                  <h1 className="text-4xl font-black tracking-tighter uppercase italic">Risultati Live</h1>
-                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Aggiornati in tempo reale</p>
+                  <h1 className="text-4xl font-black tracking-tighter uppercase italic">Risultati Firestore</h1>
+                  <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Sincronizzazione Attiva</p>
                   
-                  {currentUser === 'Filo' && (
+                  {currentUser === 'Simo' && (
                     <button 
                       onClick={handleResetVotes}
                       className="mt-4 px-4 py-2 bg-red-600 text-white text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-red-700 transition-colors shadow-lg shadow-red-200"
                     >
-                      Resetta tutti i voti
+                      Resetta Database Firebase
                     </button>
                   )}
                 </div>
@@ -369,44 +381,50 @@ export default function App() {
                   <div className="bg-white p-8 rounded-[3rem] border border-slate-200 shadow-sm relative overflow-hidden">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-slate-50 rounded-full translate-x-16 -translate-y-16 -z-1" />
                     <h2 className="text-2xl font-black mb-8 flex items-center gap-4 tracking-tight">
-                      <Trophy className="w-8 h-8 text-black" /> I PIÙ VOTATI
+                      <Trophy className="w-8 h-8 text-black" /> CLASSIFICA PUBBLICA
                     </h2>
                     
                     <div className="space-y-6">
-                      {sortedCandidates.slice(0, 8).map((c, index) => {
-                        const votes = getCandidateVotes(c.id);
-                        const percentage = (votes / USERS.length) * 100;
-                        if (votes === 0) return null;
+                      {loading ? (
+                        <div className="animate-pulse space-y-4">
+                          {[1,2,3].map(i => <div key={i} className="h-20 bg-slate-50 rounded-2xl" />)}
+                        </div>
+                      ) : (
+                        sortedCandidates.slice(0, 10).map((c, index) => {
+                          const votes = getCandidateVotes(c.id);
+                          const percentage = (votes / USERS.length) * 100;
+                          if (votes === 0) return null;
 
-                        return (
-                          <div key={c.id} className="relative group">
-                            <div className="flex justify-between items-end mb-3">
-                              <div className="flex items-center gap-5">
-                                <span className="text-slate-200 font-black text-4xl italic group-hover:text-black transition-colors">0{index + 1}</span>
-                                <div>
-                                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{c.role}</div>
-                                  <div className="text-xl font-black tracking-tight">{c.name}</div>
+                          return (
+                            <div key={c.id} className="relative group">
+                              <div className="flex justify-between items-end mb-3">
+                                <div className="flex items-center gap-5">
+                                  <span className="text-slate-200 font-black text-4xl italic group-hover:text-black transition-colors">{index < 9 ? `0${index + 1}` : index + 1}</span>
+                                  <div>
+                                    <div className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{c.role}</div>
+                                    <div className="text-xl font-black tracking-tight">{c.name}</div>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="text-3xl font-black italic tabular-nums leading-none">{votes}</div>
+                                  <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">VOTI</div>
                                 </div>
                               </div>
-                              <div className="text-right">
-                                <div className="text-3xl font-black italic tabular-nums leading-none">{votes}</div>
-                                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">VOTI</div>
+                              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                                <motion.div 
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${percentage}%` }}
+                                  transition={{ duration: 1.5, ease: [0.16, 1, 0.3, 1] }}
+                                  className="h-full bg-black rounded-full"
+                                />
                               </div>
                             </div>
-                            <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                              <motion.div 
-                                initial={{ width: 0 }}
-                                animate={{ width: `${percentage}%` }}
-                                transition={{ duration: 1.5, ease: [0.16, 1, 0.3, 1] }}
-                                className="h-full bg-black rounded-full"
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {sortedCandidates.filter(c => getCandidateVotes(c.id) > 0).length === 0 && (
+                          );
+                        })
+                      )}
+                      {!loading && sortedCandidates.filter(c => getCandidateVotes(c.id) > 0).length === 0 && (
                         <div className="text-center py-20 bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-200">
-                          <p className="text-slate-400 font-black italic uppercase tracking-widest">Nessun voto registrato ancora</p>
+                          <p className="text-slate-400 font-black italic uppercase tracking-widest">Nessun voto nel database Firestore</p>
                         </div>
                       )}
                     </div>
@@ -416,15 +434,16 @@ export default function App() {
                 {/* Panel di Destra: Activity */}
                 <div className="space-y-6">
                   <div className="bg-slate-900 text-white p-8 rounded-[3rem] shadow-2xl shadow-slate-400">
-                    <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-500 mb-8 border-b border-white/10 pb-4">Attività Membri</h3>
+                    <h3 className="text-xs font-black uppercase tracking-[0.3em] text-slate-500 mb-8 border-b border-white/10 pb-4">Voti per Utente</h3>
                     <div className="space-y-8">
                       {USERS.map(user => {
                         const userVotes = allVotes[user] || [];
+                        const isOnline = !!allVotes[user];
                         return (
                           <div key={user} className="relative pl-6 border-l-2 border-white/10">
                             <div className="flex justify-between items-center mb-3">
                               <span className="font-black italic text-lg">{user}</span>
-                              <span className="h-2 w-2 bg-green-500 rounded-full shadow-[0_0_10px_rgb(34,197,94)]" />
+                              {isOnline && <span className="h-2 w-2 bg-green-500 rounded-full shadow-[0_0_10px_rgb(34,197,94)]" />}
                             </div>
                             <div className="flex flex-wrap gap-2">
                               {userVotes.length > 0 ? (
@@ -432,12 +451,12 @@ export default function App() {
                                   const c = CANDIDATES.find(kan => kan.id === id);
                                   return (
                                     <span key={id} className="text-[10px] font-black px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-slate-300">
-                                      {c?.name}
+                                      {c?.name || 'Unknown'}
                                     </span>
                                   );
                                 })
                               ) : (
-                                <span className="text-[10px] font-bold text-slate-600 italic uppercase">In attesa di voto...</span>
+                                <span className="text-[10px] font-bold text-slate-600 italic uppercase">In attesa...</span>
                               )}
                             </div>
                           </div>
@@ -457,15 +476,11 @@ export default function App() {
         <div className="flex gap-8">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 bg-green-500 rounded-full" />
-            <span>DB: Sincronizzato</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-slate-900 rounded-full" />
-            <span>Membri: {Object.keys(allVotes).length}/{USERS.length}</span>
+            <span>Firebase: Connesso</span>
           </div>
         </div>
         <div className="hidden sm:block">
-          Sondaggi Barcaccia v1.2.0 • 2026 Edition
+          Sondaggi Barcaccia v2.0.0 • Realtime Firebase
         </div>
       </footer>
     </div>
