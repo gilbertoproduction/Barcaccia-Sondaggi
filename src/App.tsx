@@ -98,6 +98,18 @@ export default function App() {
     setView('results');
   };
 
+  const handleResetVotes = () => {
+    if (currentUser !== 'Filo') return;
+    
+    const confirmed = window.confirm('Sei sicuro di voler cancellare tutti i voti? Questa azione è irreversibile.');
+    if (confirmed) {
+      localStorage.removeItem('sondaggioJuventus_voti');
+      setAllVotes({});
+      setSelectedIds([]);
+      setError('Voti resettati con successo.');
+    }
+  };
+
   // Calcolo statistiche
   const getCandidateVotes = (id: string) => {
     return Object.values(allVotes).filter((votes): votes is string[] => 
@@ -339,6 +351,15 @@ export default function App() {
                 <div className="text-right">
                   <h1 className="text-4xl font-black tracking-tighter uppercase italic">Risultati Live</h1>
                   <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Aggiornati in tempo reale</p>
+                  
+                  {currentUser === 'Filo' && (
+                    <button 
+                      onClick={handleResetVotes}
+                      className="mt-4 px-4 py-2 bg-red-600 text-white text-[10px] font-black uppercase tracking-widest rounded-lg hover:bg-red-700 transition-colors shadow-lg shadow-red-200"
+                    >
+                      Resetta tutti i voti
+                    </button>
+                  )}
                 </div>
               </div>
 
